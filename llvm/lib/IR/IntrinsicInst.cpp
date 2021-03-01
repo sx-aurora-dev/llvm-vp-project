@@ -196,11 +196,23 @@ Value *VPIntrinsic::getMaskParam() const {
   return nullptr;
 }
 
+void VPIntrinsic::setMaskParam(Value *NewMask) {
+  auto MaskPos = GetMaskParamPos(getIntrinsicID());
+  assert(MaskPos.hasValue());
+  setArgOperand(MaskPos.getValue(), NewMask);
+}
+
 Value *VPIntrinsic::getVectorLengthParam() const {
   auto vlenPos = GetVectorLengthParamPos(getIntrinsicID());
   if (vlenPos)
     return getArgOperand(vlenPos.getValue());
   return nullptr;
+}
+
+void VPIntrinsic::setVectorLengthParam(Value *NewEVL) {
+  auto EVLPos = GetVectorLengthParamPos(getIntrinsicID());
+  assert(EVLPos.hasValue());
+  setArgOperand(EVLPos.getValue(), NewEVL);
 }
 
 Optional<int> VPIntrinsic::GetMaskParamPos(Intrinsic::ID IntrinsicID) {
