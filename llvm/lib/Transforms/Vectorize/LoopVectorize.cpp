@@ -9204,8 +9204,6 @@ void VPWidenRecipe::execute(VPTransformState &State) {
 
 void VPPredicatedWidenRecipe::execute(VPTransformState &State) {
   // TODO: Implement
-  assert(!PreferPredicateWithVPIntrinsics &&
-         "Widening to VP intrinsics not supported yet.");
 }
 
 void VPWidenGEPRecipe::execute(VPTransformState &State) {
@@ -9417,14 +9415,10 @@ void VPWidenMemoryInstructionRecipe::execute(VPTransformState &State) {
 void VPPredicatedWidenMemoryInstructionRecipe::execute(
     VPTransformState &State) {
   // TODO: Implement
-  assert(!PreferPredicateWithVPIntrinsics &&
-         "Widening to VP intrinsics not supported yet.");
 }
 
 void VPWidenEVLRecipe::execute(VPTransformState &State) {
   // TODO: Implement
-  assert(!PreferPredicateWithVPIntrinsics &&
-         "Widening to VP intrinsics not supported yet.");
 }
 
 // Determine how to lower the scalar epilogue, which depends on 1) optimising
