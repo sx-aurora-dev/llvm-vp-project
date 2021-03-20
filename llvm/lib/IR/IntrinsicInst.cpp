@@ -239,6 +239,56 @@ Optional<int> VPIntrinsic::GetVectorLengthParamPos(Intrinsic::ID IntrinsicID) {
   }
 }
 
+/// \return the alignment of the pointer used by this load/store/gather or
+/// scatter.
+MaybeAlign VPIntrinsic::getPointerAlignment() const {
+  Optional<int> PtrParamOpt = GetMemoryPointerParamPos(getIntrinsicID());
+  assert(PtrParamOpt.hasValue() && "no pointer argument!");
+  return this->getParamAlign(PtrParamOpt.getValue());
+}
+
+/// \return The pointer operand of this load,store, gather or scatter.
+Value *VPIntrinsic::getMemoryPointerParam() const {
+  auto PtrParamOpt = GetMemoryPointerParamPos(getIntrinsicID());
+  if (!PtrParamOpt.hasValue())
+    return nullptr;
+  return getArgOperand(PtrParamOpt.getValue());
+}
+
+Optional<int> VPIntrinsic::GetMemoryPointerParamPos(Intrinsic::ID VPID) {
+  switch (VPID) {
+  default:
+    return None;
+
+#define HANDLE_VP_IS_MEMOP(VPID, POINTERPOS, DATAPOS)                          \
+  case Intrinsic::VPID:                                                        \
+    return POINTERPOS;
+#include "llvm/IR/VPIntrinsics.def"
+  }
+}
+
+/// \return The data (payload) operand of this store or scatter.
+Value *VPIntrinsic::getMemoryDataParam() const {
+  auto DataParamOpt = GetMemoryDataParamPos(getIntrinsicID());
+  if (!DataParamOpt.hasValue())
+    return nullptr;
+  return getArgOperand(DataParamOpt.getValue());
+}
+
+Optional<int> VPIntrinsic::GetMemoryDataParamPos(Intrinsic::ID VPID) {
+  switch (VPID) {
+  default:
+    return None;
+
+#define HANDLE_VP_IS_MEMOP(VPID, POINTERPOS, DATAPOS)                          \
+  case Intrinsic::VPID:                                                        \
+    return DATAPOS;
+#include "llvm/IR/VPIntrinsics.def"
+  }
+}
+
+
+
 bool VPIntrinsic::IsVPIntrinsic(Intrinsic::ID ID) {
   switch (ID) {
   default:

@@ -291,6 +291,18 @@ public:
   /// length parameter applies to.
   ElementCount getStaticVectorLength() const;
 
+  /// \return the alignment of the pointer used by this load/store/gather or scatter.
+  MaybeAlign getPointerAlignment() const;
+  // MaybeAlign setPointerAlignment(Align NewAlign); // TODO
+
+  /// \return The pointer operand of this load,store, gather or scatter.
+  Value *getMemoryPointerParam() const;
+  static Optional<int> GetMemoryPointerParamPos(Intrinsic::ID);
+
+  /// \return The data (payload) operand of this store or scatter.
+  Value *getMemoryDataParam() const;
+  static Optional<int> GetMemoryDataParamPos(Intrinsic::ID);
+
   // Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const IntrinsicInst *I) {
     return IsVPIntrinsic(I->getIntrinsicID());

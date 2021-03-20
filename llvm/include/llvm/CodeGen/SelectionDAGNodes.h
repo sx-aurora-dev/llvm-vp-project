@@ -511,6 +511,7 @@ BEGIN_TWO_BYTE_PACK()
     friend class LSBaseSDNode;
     friend class MaskedLoadStoreSDNode;
     friend class MaskedGatherScatterSDNode;
+    friend class VPGatherScatterSDNode;
 
     uint16_t : NumMemSDNodeBits;
 
@@ -527,6 +528,7 @@ BEGIN_TWO_BYTE_PACK()
     friend class LoadSDNode;
     friend class MaskedLoadSDNode;
     friend class MaskedGatherSDNode;
+    friend class VPLoadSDNode;
 
     uint16_t : NumLSBaseSDNodeBits;
 
@@ -538,6 +540,7 @@ BEGIN_TWO_BYTE_PACK()
     friend class StoreSDNode;
     friend class MaskedStoreSDNode;
     friend class MaskedScatterSDNode;
+    friend class VPStoreSDNode;
 
     uint16_t : NumLSBaseSDNodeBits;
 
@@ -1389,6 +1392,10 @@ public:
            N->getOpcode() == ISD::MSTORE              ||
            N->getOpcode() == ISD::MGATHER             ||
            N->getOpcode() == ISD::MSCATTER            ||
+           N->getOpcode() == ISD::VP_LOAD             ||
+           N->getOpcode() == ISD::VP_STORE            ||
+           N->getOpcode() == ISD::VP_GATHER           ||
+           N->getOpcode() == ISD::VP_SCATTER          ||
            N->isMemIntrinsic()                        ||
            N->isTargetMemoryOpcode();
   }
@@ -2305,6 +2312,96 @@ public:
   }
 };
 
+/// This base class is used to represent VP_LOAD and VP_STORE nodes
+class VPLoadStoreSDNode : public MemSDNode {
+public:
+  friend class SelectionDAG;
+
+  VPLoadStoreSDNode(ISD::NodeType NodeTy, unsigned Order,
+                        const DebugLoc &dl, SDVTList VTs, EVT MemVT,
+                        MachineMemOperand *MMO)
+      : MemSDNode(NodeTy, Order, dl, VTs, MemVT, MMO) {}
+
+  // VPLoadSDNode (Chain, ptr, mask, VLen)
+  // VPStoreSDNode (Chain, data, ptr, mask, VLen)
+  // Mask is a vector of i1 elements, Vlen is i32
+  const SDValue &getBasePtr() const {
+    return getOperand(getOpcode() == ISD::VP_LOAD ? 1 : 2);
+  }
+  const SDValue &getMask() const {
+    return getOperand(getOpcode() == ISD::VP_LOAD ? 2 : 3);
+  }
+  const SDValue &getVectorLength() const {
+    return getOperand(getOpcode() == ISD::VP_LOAD ? 3 : 4);
+  }
+
+  static bool classof(const SDNode *N) {
+    return N->getOpcode() == ISD::VP_LOAD ||
+           N->getOpcode() == ISD::VP_STORE;
+  }
+};
+
+/// This class is used to represent a VP_LOAD node
+class VPLoadSDNode : public VPLoadStoreSDNode {
+public:
+  friend class SelectionDAG;
+
+  VPLoadSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
+                   ISD::LoadExtType ETy, EVT MemVT,
+                   MachineMemOperand *MMO)
+      : VPLoadStoreSDNode(ISD::VP_LOAD, Order, dl, VTs, MemVT, MMO) {
+    LoadSDNodeBits.ExtTy = ETy;
+    LoadSDNodeBits.IsExpanding = false;
+  }
+
+  ISD::LoadExtType getExtensionType() const {
+    return static_cast<ISD::LoadExtType>(LoadSDNodeBits.ExtTy);
+  }
+
+  const SDValue &getBasePtr() const { return getOperand(1); }
+  const SDValue &getMask() const    { return getOperand(2); }
+  const SDValue &getVectorLength() const { return getOperand(3); }
+
+  static bool classof(const SDNode *N) {
+    return N->getOpcode() == ISD::VP_LOAD;
+  }
+  bool isExpandingLoad() const { return LoadSDNodeBits.IsExpanding; }
+};
+
+/// This class is used to represent a VP_STORE node
+class VPStoreSDNode : public VPLoadStoreSDNode {
+public:
+  friend class SelectionDAG;
+
+  VPStoreSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
+                    bool isTrunc, EVT MemVT,
+                    MachineMemOperand *MMO)
+      : VPLoadStoreSDNode(ISD::VP_STORE, Order, dl, VTs, MemVT, MMO) {
+    StoreSDNodeBits.IsTruncating = isTrunc;
+    StoreSDNodeBits.IsCompressing = false;
+  }
+
+  /// Return true if this is a truncating store.
+  /// For integers this is the same as doing a TRUNCATE and storing the result.
+  /// For floats, it is the same as doing an FP_ROUND and storing the result.
+  bool isTruncatingStore() const { return StoreSDNodeBits.IsTruncating; }
+
+  /// Returns true if the op does a compression to the vector before storing.
+  /// The node contiguously stores the active elements (integers or floats)
+  /// in src (those with their respective bit set in writemask k) to unaligned
+  /// memory at base_addr.
+  bool isCompressingStore() const { return StoreSDNodeBits.IsCompressing; }
+
+  const SDValue &getValue() const   { return getOperand(1); }
+  const SDValue &getBasePtr() const { return getOperand(2); }
+  const SDValue &getMask() const    { return getOperand(3); }
+  const SDValue &getVectorLength() const    { return getOperand(4); }
+
+  static bool classof(const SDNode *N) {
+    return N->getOpcode() == ISD::VP_STORE;
+  }
+};
+
 /// This base class is used to represent MLOAD and MSTORE nodes
 class MaskedLoadStoreSDNode : public MemSDNode {
 public:
@@ -2407,6 +2504,84 @@ public:
 
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::MSTORE;
+  }
+};
+
+/// This is a base class used to represent
+/// VP_GATHER and VP_SCATTER nodes
+///
+class VPGatherScatterSDNode : public MemSDNode {
+public:
+  friend class SelectionDAG;
+
+  VPGatherScatterSDNode(ISD::NodeType NodeTy, unsigned Order,
+                            const DebugLoc &dl, SDVTList VTs, EVT MemVT,
+                            MachineMemOperand *MMO, ISD::MemIndexType IndexType)
+      : MemSDNode(NodeTy, Order, dl, VTs, MemVT, MMO) {
+    LSBaseSDNodeBits.AddressingMode = IndexType;
+    assert(getIndexType() == IndexType && "Value truncated");
+  }
+
+  /// How is Index applied to BasePtr when computing addresses.
+  ISD::MemIndexType getIndexType() const {
+    return static_cast<ISD::MemIndexType>(LSBaseSDNodeBits.AddressingMode);
+  }
+  bool isIndexScaled() const {
+    return (getIndexType() == ISD::SIGNED_SCALED) ||
+           (getIndexType() == ISD::UNSIGNED_SCALED);
+  }
+  bool isIndexSigned() const {
+    return (getIndexType() == ISD::SIGNED_SCALED) ||
+           (getIndexType() == ISD::SIGNED_UNSCALED);
+  }
+
+  // In the both nodes address is Op1, mask is Op2:
+  // VPGatherSDNode  (Chain, base, index, scale, mask, vlen)
+  // VPScatterSDNode (Chain, value, base, index, scale, mask, vlen)
+  // Mask is a vector of i1 elements
+  const SDValue &getBasePtr() const { return getOperand((getOpcode() == ISD::VP_GATHER) ? 1 : 2); }
+  const SDValue &getIndex()   const { return getOperand((getOpcode() == ISD::VP_GATHER) ? 2 : 3); }
+  const SDValue &getScale()   const { return getOperand((getOpcode() == ISD::VP_GATHER) ? 3 : 4); }
+  const SDValue &getMask()    const { return getOperand((getOpcode() == ISD::VP_GATHER) ? 4 : 5); }
+  const SDValue &getVectorLength()    const { return getOperand((getOpcode() == ISD::VP_GATHER) ? 5 : 6); }
+
+  static bool classof(const SDNode *N) {
+    return N->getOpcode() == ISD::VP_GATHER ||
+           N->getOpcode() == ISD::VP_SCATTER;
+  }
+};
+
+/// This class is used to represent an VP_GATHER node
+///
+class VPGatherSDNode : public VPGatherScatterSDNode {
+public:
+  friend class SelectionDAG;
+
+  VPGatherSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
+                     EVT MemVT, MachineMemOperand *MMO,
+                     ISD::MemIndexType IndexType)
+      : VPGatherScatterSDNode(ISD::VP_GATHER, Order, dl, VTs, MemVT, MMO, IndexType) {}
+
+  static bool classof(const SDNode *N) {
+    return N->getOpcode() == ISD::VP_GATHER;
+  }
+};
+
+/// This class is used to represent an VP_SCATTER node
+///
+class VPScatterSDNode : public VPGatherScatterSDNode {
+public:
+  friend class SelectionDAG;
+
+  VPScatterSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
+                      EVT MemVT, MachineMemOperand *MMO,
+                      ISD::MemIndexType IndexType)
+      : VPGatherScatterSDNode(ISD::VP_SCATTER, Order, dl, VTs, MemVT, MMO, IndexType) {}
+
+  const SDValue &getValue() const { return getOperand(1); }
+
+  static bool classof(const SDNode *N) {
+    return N->getOpcode() == ISD::VP_SCATTER;
   }
 };
 

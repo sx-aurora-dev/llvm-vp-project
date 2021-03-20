@@ -1334,6 +1334,33 @@ def int_ptrmask: DefaultAttrsIntrinsic<[llvm_anyptr_ty], [LLVMMatchType<0>, llvm
                            [IntrNoMem, IntrSpeculatable, IntrWillReturn]>;
 
 //===---------------- Vector Predication Intrinsics --------------===//
+// Memory Intrinsics
+def int_vp_store : Intrinsic<[],
+                             [ llvm_anyvector_ty,
+                               LLVMAnyPointerType<LLVMMatchType<0>>,
+                               LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>,
+                               llvm_i32_ty],
+                             [ NoCapture<ArgIndex<1>>, IntrNoSync, IntrArgMemOnly, IntrWillReturn ]>;
+
+def int_vp_load  : Intrinsic<[ llvm_anyvector_ty],
+                             [ LLVMAnyPointerType<LLVMMatchType<0>>,
+                               LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>,
+                               llvm_i32_ty],
+                             [ NoCapture<ArgIndex<0>>, IntrNoSync, IntrReadMem, IntrWillReturn, IntrArgMemOnly ]>;
+
+def int_vp_gather: Intrinsic<[ llvm_anyvector_ty],
+                             [ LLVMVectorOfAnyPointersToElt<0>,
+                               LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>,
+                               llvm_i32_ty],
+                             [ IntrReadMem, IntrNoSync, IntrWillReturn, IntrArgMemOnly ]>;
+
+def int_vp_scatter: Intrinsic<[],
+                              [ llvm_anyvector_ty,
+                                LLVMVectorOfAnyPointersToElt<0>,
+                                LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>,
+                                llvm_i32_ty],
+                              [ IntrArgMemOnly, IntrNoSync, IntrWillReturn ]>;
+// TODO allow IntrNoCapture for vectors of pointers
 
 // Speculatable Binary operators
 let IntrProperties = [IntrSpeculatable, IntrNoMem, IntrNoSync, IntrWillReturn] in {
