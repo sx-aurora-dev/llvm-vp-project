@@ -571,6 +571,10 @@ public:
   /// element.
   virtual Value *getBroadcastInstrs(Value *V);
 
+  /// Create Instructions to compute Explicit Vector Length when using VP
+  /// intrinsics.
+  Value *createEVL();
+
 protected:
   friend class LoopVectorizationPlanner;
 
@@ -9488,8 +9492,41 @@ void VPPredicatedWidenMemoryInstructionRecipe::execute(
       StoredValue, getMask(), getEVL());
 }
 
+Value *InnerLoopVectorizer::createEVL() {
+  auto *MinVF = Builder.getInt32(VF.getKnownMinValue());
+  Value *RuntimeVL =
+      VF.isScalable() ? Builder.CreateVScale(MinVF, "vscale.x.vf") : MinVF;
+  // FIXME: If the target does not support active vector length, the use of VP
+  // intrinsics for it is discouraged. We should decide against using vector
+  // length based predication before creating the VPlan.
+  if (!TTI->hasActiveVectorLength())
+    return RuntimeVL;
+
+  Value *Remaining = Builder.CreateSub(TripCount, Induction);
+  // FIXME: This is a proof-of-concept naive implementation to demonstrate using
+  // a target dependent intrinisc to compute the vector length.
+  if (TTI->useCustomActiveVectorLengthIntrinsic()) {
+    // Set Element width to the widest type used in the loop.
+    unsigned SmallestType, WidestType;
+    std::tie(SmallestType, WidestType) = Cost->getSmallestAndWidestTypes();
+    Constant *ElementWidth = Builder.getInt32(WidestType);
+    // Set Register width factor to 1.
+    Constant *RegWidthFactor = Builder.getInt32(1);
+    return Builder.CreateIntrinsic(Intrinsic::experimental_set_vector_length,
+                                   {Remaining->getType()},
+                                   {Remaining, ElementWidth, RegWidthFactor});
+  }
+
+  return Builder.CreateMinimum(RuntimeVL, Remaining);
+}
+
 void VPWidenEVLRecipe::execute(VPTransformState &State) {
-  // TODO: Implement
+  // FIXME: Interleaving with predicated vectorization is not yet supported.
+  // Since VPlan only provides set methods for per Part or per Instance, we use
+  // the per Part set method to store the same EVL for each Part (State.UF would
+  // be 1 for now.)
+  for (unsigned Part = 0; Part < State.UF; Part++)
+    State.set(getEVL(), State.ILV->createEVL(), Part);
 }
 
 // Determine how to lower the scalar epilogue, which depends on 1) optimising
