@@ -1042,6 +1042,10 @@ bool TargetTransformInfo::hasActiveVectorLength() const {
   return TTIImpl->hasActiveVectorLength();
 }
 
+bool TargetTransformInfo::useCustomActiveVectorLengthIntrinsic() const {
+  return TTIImpl->useCustomActiveVectorLengthIntrinsic();
+}
+
 static bool matchPairwiseShuffleMask(ShuffleVectorInst *SI, bool IsLeft,
                                      unsigned Level) {
   // We don't need a shuffle if we just want to have element 0 in position 0 of
