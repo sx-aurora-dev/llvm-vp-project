@@ -982,7 +982,7 @@ void VPWidenRecipe::print(raw_ostream &O, const Twine &Indent,
 
 void VPPredicatedWidenRecipe::print(raw_ostream &O, const Twine &Indent,
                                     VPSlotTracker &SlotTracker) const {
-  O << "PREDICATED-WIDEN ";
+  O << Indent << "PREDICATED-WIDEN ";
   printAsOperand(O, SlotTracker);
   O << " = " << getUnderlyingInstr()->getOpcodeName() << " ";
   printOperands(O, SlotTracker);
@@ -1094,7 +1094,7 @@ void VPWidenMemoryInstructionRecipe::print(raw_ostream &O, const Twine &Indent,
 
 void VPPredicatedWidenMemoryInstructionRecipe::print(
     raw_ostream &O, const Twine &Indent, VPSlotTracker &SlotTracker) const {
-  O << "PREDICATED-WIDEN ";
+  O << Indent << "PREDICATED-WIDEN ";
 
   if (!isStore()) {
     getVPValue()->printAsOperand(O, SlotTracker);
@@ -1141,7 +1141,7 @@ void VPWidenCanonicalIVRecipe::print(raw_ostream &O, const Twine &Indent,
 
 void VPWidenEVLRecipe::print(raw_ostream &O, const Twine &Indent,
                              VPSlotTracker &SlotTracker) const {
-  O << "EMIT ";
+  O << Indent << "EMIT ";
   getEVL()->printAsOperand(O, SlotTracker);
   O << " = GENERATE-EXPLICIT-VECTOR-LENGTH";
 }

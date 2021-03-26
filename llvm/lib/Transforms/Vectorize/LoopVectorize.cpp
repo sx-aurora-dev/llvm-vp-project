@@ -270,7 +270,7 @@ static cl::opt<PreferVPIntrinsicsTy::Option> PreferPredicateWithVPIntrinsics(
         clEnumValN(PreferVPIntrinsicsTy::NoPredication, "no-predication",
                    "Do not generate VP intrinsics."),
         clEnumValN(PreferVPIntrinsicsTy::IfAVLSupported,
-                   "if-active-vector-length-supported",
+                   "if-active-vector-length-support",
                    "Only generate VP intrinsics if the target supports vector "
                    "length predication."),
         clEnumValN(PreferVPIntrinsicsTy::WithoutAVLSupport,
@@ -528,6 +528,11 @@ public:
   /// Widen a single instruction within the innermost loop.
   void widenInstruction(Instruction &I, VPValue *Def, VPUser &Operands,
                         VPTransformState &State);
+
+  /// Widen a single instruction to a VP intrinsic within the innermost loop.
+  void widenPredicatedInstruction(Instruction &I, VPValue *Def,
+                                  VPUser &Operands, VPTransformState &State,
+                                  VPValue *BlockInMask, VPValue *EVL);
 
   /// Widen a single call instruction within the innermost loop.
   void widenCallInstruction(CallInst &I, VPValue *Def, VPUser &ArgOperands,
@@ -2894,6 +2899,21 @@ void InnerLoopVectorizer::vectorizeInterleaveGroup(
   }
 }
 
+/// A helper function to check if the outermost mask does not indicate any
+/// control flow within the loop. The outermost mask can be lowered as an all
+/// ones mask when using EVL if it only masks the lanes beyond the trip count.
+/// FIXME: This is a crude hack to check the outer mask condition. We should
+/// mark such a case separately in the VPlan.
+static bool useAllTrueMask(VPValue *BlockInMask) {
+  if (PreferPredicateWithVPIntrinsics ==
+      PreferVPIntrinsicsTy::WithoutAVLSupport)
+    return false;
+
+  return isa<VPInstruction>(BlockInMask) &&
+         cast<VPInstruction>(BlockInMask)->getOpcode() ==
+             VPInstruction::ICmpULE;
+}
+
 void InnerLoopVectorizer::vectorizeMemoryInstruction(
     Instruction *Instr, VPTransformState &State, VPValue *Def, VPValue *Addr,
     VPValue *StoredValue, VPValue *BlockInMask, VPValue *EVL) {
@@ -2991,8 +3011,7 @@ void InnerLoopVectorizer::vectorizeMemoryInstruction(
     // EVL if it only masks the lanes beyond the trip count.
     // FIXME: This is a crude hack to check the outer mask condition. We should
     // mark such a case separately in the VPlan.
-    if (isa<VPInstruction>(BlockInMask) &&
-        cast<VPInstruction>(BlockInMask)->getOpcode() == VPInstruction::ICmpULE)
+    if (useAllTrueMask(BlockInMask))
       return Builder.CreateTrueVector(EC);
     else
       return BlockInMaskParts[Part];
@@ -4966,6 +4985,75 @@ static bool mayDivideByZero(Instruction &I) {
   Value *Divisor = I.getOperand(1);
   auto *CInt = dyn_cast<ConstantInt>(Divisor);
   return !CInt || CInt->isZero();
+}
+
+void InnerLoopVectorizer::widenPredicatedInstruction(Instruction &I,
+                                                     VPValue *Def, VPUser &User,
+                                                     VPTransformState &State,
+                                                     VPValue *BlockInMask,
+                                                     VPValue *EVL) {
+  auto getVPIntrInstr = [](unsigned Opcode) {
+    switch (Opcode) {
+    case Instruction::Add:
+      return Intrinsic::vp_add;
+    case Instruction::Sub:
+      return Intrinsic::vp_sub;
+    case Instruction::Mul:
+      return Intrinsic::vp_mul;
+    case Instruction::SDiv:
+      return Intrinsic::vp_sdiv;
+    case Instruction::UDiv:
+      return Intrinsic::vp_udiv;
+    case Instruction::SRem:
+      return Intrinsic::vp_srem;
+    case Instruction::URem:
+      return Intrinsic::vp_urem;
+    case Instruction::AShr:
+      return Intrinsic::vp_ashr;
+    case Instruction::LShr:
+      return Intrinsic::vp_lshr;
+    case Instruction::Shl:
+      return Intrinsic::vp_shl;
+    case Instruction::Or:
+      return Intrinsic::vp_or;
+    case Instruction::And:
+      return Intrinsic::vp_and;
+    case Instruction::Xor:
+      return Intrinsic::vp_xor;
+    }
+    return Intrinsic::not_intrinsic;
+  };
+
+  unsigned Opcode = I.getOpcode();
+  assert(getVPIntrInstr(Opcode) != Intrinsic::not_intrinsic &&
+         "Instruction does not have VP intrinsic support.");
+
+  // Just widen unops and binops.
+  setDebugLocFromInst(Builder, &I);
+
+  for (unsigned Part = 0; Part < UF; ++Part) {
+    SmallVector<Value *, 2> Ops;
+    for (unsigned OpIdx = 0; OpIdx < User.getNumOperands() - 2; OpIdx++)
+      Ops.push_back(State.get(User.getOperand(OpIdx), Part));
+
+    VectorType *OpTy = cast<VectorType>(Ops[0]->getType());
+    Value *MaskOp = useAllTrueMask(BlockInMask)
+                        ? Builder.CreateTrueVector(OpTy->getElementCount())
+                        : State.get(BlockInMask, Part);
+    Ops.push_back(MaskOp);
+
+    Value *EVLOp = State.get(EVL, Part);
+    Ops.push_back(EVLOp);
+
+    Value *V = Builder.CreateIntrinsic(getVPIntrInstr(Opcode), OpTy, Ops,
+                                       nullptr, "vp.op");
+    if (auto *VecOp = dyn_cast<Instruction>(V))
+      VecOp->copyIRFlags(&I);
+
+    // Use this vector value for all users of the original instruction.
+    State.set(Def, V, Part);
+    addMetadata(V, &I);
+  }
 }
 
 void InnerLoopVectorizer::widenInstruction(Instruction &I, VPValue *Def,
@@ -9329,7 +9417,8 @@ void VPWidenRecipe::execute(VPTransformState &State) {
 }
 
 void VPPredicatedWidenRecipe::execute(VPTransformState &State) {
-  // TODO: Implement
+  State.ILV->widenPredicatedInstruction(*getUnderlyingInstr(), this, *this,
+                                        State, getMask(), getEVL());
 }
 
 void VPWidenGEPRecipe::execute(VPTransformState &State) {
@@ -9580,7 +9669,10 @@ Value *InnerLoopVectorizer::createEVL() {
                                    {Remaining, ElementWidth, RegWidthFactor});
   }
 
-  return Builder.CreateMinimum(RuntimeVL, Remaining);
+  Value *RuntimeVLExt = Builder.CreateZExt(RuntimeVL, Remaining->getType());
+  Value *EVL =
+      Builder.CreateBinaryIntrinsic(Intrinsic::umin, RuntimeVLExt, Remaining);
+  return Builder.CreateTrunc(EVL, Builder.getInt32Ty());
 }
 
 void VPWidenEVLRecipe::execute(VPTransformState &State) {
