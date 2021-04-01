@@ -764,6 +764,12 @@ private:
   void visitTargetIntrinsic(const CallInst &I, unsigned Intrinsic);
   void visitConstrainedFPIntrinsic(const ConstrainedFPIntrinsic &FPI);
   void visitVectorPredicationIntrinsic(const VPIntrinsic &VPIntrin);
+  void visitCmpVP(const VPIntrinsic &I);
+  void visitLoadVP(const CallInst &I);
+  void visitStoreVP(const CallInst &I);
+  void visitGatherVP(const CallInst &I);
+  void visitScatterVP(const CallInst &I);
+  void visitReduceVP(const VPIntrinsic &I);
 
   void visitVAStart(const CallInst &I);
   void visitVAArg(const VAArgInst &I);
