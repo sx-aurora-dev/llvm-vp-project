@@ -2069,12 +2069,12 @@ void LoopAccessInfo::analyzeLoop(AAResults *AA, LoopInfo *LI,
   }
 }
 
-bool LoopAccessInfo::blockNeedsPredication(BasicBlock *BB, Loop *TheLoop,
-                                           DominatorTree *DT)  {
+bool LoopAccessInfo::blockNeedsPredication(const BasicBlock *BB, const Loop *TheLoop,
+                                           const DominatorTree *DT)  {
   assert(TheLoop->contains(BB) && "Unknown block used");
 
   // Blocks that do not dominate the latch need predication.
-  BasicBlock* Latch = TheLoop->getLoopLatch();
+  const BasicBlock* Latch = TheLoop->getLoopLatch();
   return !DT->dominates(BB, Latch);
 }
 

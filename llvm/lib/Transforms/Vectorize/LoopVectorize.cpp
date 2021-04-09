@@ -1628,7 +1628,7 @@ public:
     return foldTailByMasking() && PreferVPIntrinsics;
   }
 
-  bool blockNeedsPredication(BasicBlock *BB) {
+  bool blockNeedsPredication(BasicBlock *BB) const {
     return foldTailByMasking() || Legal->blockNeedsPredication(BB);
   }
 

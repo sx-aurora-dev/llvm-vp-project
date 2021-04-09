@@ -542,8 +542,8 @@ public:
 
   /// Return true if the block BB needs to be predicated in order for the loop
   /// to be vectorized.
-  static bool blockNeedsPredication(BasicBlock *BB, Loop *TheLoop,
-                                    DominatorTree *DT);
+  static bool blockNeedsPredication(const BasicBlock *BB, const Loop *TheLoop,
+                                    const DominatorTree *DT);
 
   /// Returns true if the value V is uniform within the loop.
   bool isUniform(Value *V) const;

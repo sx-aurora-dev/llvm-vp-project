@@ -879,7 +879,7 @@ bool LoopVectorizationLegality::isFirstOrderRecurrence(const PHINode *Phi) {
   return FirstOrderRecurrences.count(Phi);
 }
 
-bool LoopVectorizationLegality::blockNeedsPredication(BasicBlock *BB) {
+bool LoopVectorizationLegality::blockNeedsPredication(BasicBlock *BB) const {
   return LoopAccessInfo::blockNeedsPredication(BB, TheLoop, DT);
 }
 
