@@ -38,7 +38,7 @@ Value &VectorBuilder::RequestEVL() {
   return *ConstantInt::get(intTy, StaticVectorLength.getFixedValue());
 }
 
-Value *VectorBuilder::createVectorCopy(Instruction &Inst, ValArray VecOpArray) {
+Value *VectorBuilder::createVectorCopy(Instruction &Inst, ValArray VecOpArray, Twine Name) {
   auto OC = Inst.getOpcode();
   auto VPID = VPIntrinsic::GetForOpcode(OC);
   if (VPID == Intrinsic::not_intrinsic) {
@@ -107,7 +107,7 @@ Value *VectorBuilder::createVectorCopy(Instruction &Inst, ValArray VecOpArray) {
                                    Inst.getName() + ".vp");
 #else
   // Transfer FMF flags
-  auto VPCall = Builder.CreateCall(VPDecl, VecParams, Inst.getName() + ".vp");
+  auto VPCall = Builder.CreateCall(VPDecl, VecParams, Name);
 #endif
 
   auto FPOp = dyn_cast<FPMathOperator>(&Inst);

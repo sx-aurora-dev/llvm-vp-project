@@ -5009,42 +5009,6 @@ void InnerLoopVectorizer::widenPredicatedInstruction(Instruction &I,
                                                      VPTransformState &State,
                                                      VPValue *BlockInMask,
                                                      VPValue *EVL) {
-  auto getVPIntrInstr = [](unsigned Opcode) {
-    switch (Opcode) {
-    case Instruction::Add:
-      return Intrinsic::vp_add;
-    case Instruction::Sub:
-      return Intrinsic::vp_sub;
-    case Instruction::Mul:
-      return Intrinsic::vp_mul;
-    case Instruction::SDiv:
-      return Intrinsic::vp_sdiv;
-    case Instruction::UDiv:
-      return Intrinsic::vp_udiv;
-    case Instruction::SRem:
-      return Intrinsic::vp_srem;
-    case Instruction::URem:
-      return Intrinsic::vp_urem;
-    case Instruction::AShr:
-      return Intrinsic::vp_ashr;
-    case Instruction::LShr:
-      return Intrinsic::vp_lshr;
-    case Instruction::Shl:
-      return Intrinsic::vp_shl;
-    case Instruction::Or:
-      return Intrinsic::vp_or;
-    case Instruction::And:
-      return Intrinsic::vp_and;
-    case Instruction::Xor:
-      return Intrinsic::vp_xor;
-    }
-    return Intrinsic::not_intrinsic;
-  };
-
-  unsigned Opcode = I.getOpcode();
-  assert(getVPIntrInstr(Opcode) != Intrinsic::not_intrinsic &&
-         "Instruction does not have VP intrinsic support.");
-
   // Just widen unops and binops.
   setDebugLocFromInst(Builder, &I);
 
@@ -5054,16 +5018,17 @@ void InnerLoopVectorizer::widenPredicatedInstruction(Instruction &I,
       Ops.push_back(State.get(User.getOperand(OpIdx), Part));
 
     VectorType *OpTy = cast<VectorType>(Ops[0]->getType());
-    Value *MaskOp = useAllTrueMask(BlockInMask)
-                        ? Builder.CreateTrueVector(OpTy->getElementCount())
-                        : State.get(BlockInMask, Part);
-    Ops.push_back(MaskOp);
 
     Value *EVLOp = State.get(EVL, Part);
-    Ops.push_back(EVLOp);
 
-    Value *V = Builder.CreateIntrinsic(getVPIntrInstr(Opcode), OpTy, Ops,
-                                       nullptr, "vp.op");
+    VectorBuilder VectorBuilder(Builder);
+    VectorBuilder
+      .setStaticVL(OpTy->getElementCount())
+      .setEVL(EVLOp);
+
+    if (!useAllTrueMask(BlockInMask))
+      VectorBuilder.setMask(State.get(BlockInMask, Part));
+    Value *V = VectorBuilder.createVectorCopy(I, Ops);
     if (auto *VecOp = dyn_cast<Instruction>(V))
       VecOp->copyIRFlags(&I);
 

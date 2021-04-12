@@ -59,7 +59,8 @@ public:
 
   // Create a map-vectorized copy of the instruction \p Inst with the underlying IRBuilder instance.
   // This operation may return nullptr if the instruction could not be vectorized.
-  Value* createVectorCopy(Instruction & Inst, ValArray VecOpArray);
+  Value *createVectorCopy(Instruction &Inst, ValArray VecOpArray,
+                          Twine Name = "");
 
   // shift the elements in \p SrcVal by Amount where the result lane is true.
   Value* createVectorShift(Value *SrcVal, Value *Amount, Twine Name="");
