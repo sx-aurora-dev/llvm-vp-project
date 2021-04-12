@@ -123,6 +123,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/IR/VectorBuilder.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
@@ -3049,14 +3050,18 @@ void InnerLoopVectorizer::vectorizeMemoryInstruction(
         // intrinsic.
         if (EVLPart) {
           VectorType *StoredValTy = cast<VectorType>(StoredVal->getType());
-          Value *BlockInMaskPart =
-              MaskValue(Part, StoredValTy->getElementCount(), isMaskRequired);
           Value *EVLPartI32 = Builder.CreateSExtOrTrunc(
               EVLPart, Type::getInt32Ty(Builder.getContext()));
-          NewSI = Builder.CreateIntrinsic(
-              Intrinsic::vp_store, {StoredValTy, VecPtr->getType()},
-              {StoredVal, VecPtr, Builder.getInt32(Alignment.value()),
-               BlockInMaskPart, EVLPartI32});
+          VectorBuilder VectorBuilder(Builder);
+          VectorBuilder.setStaticVL(StoredValTy->getElementCount())
+              .setEVL(EVLPartI32);
+
+          if (isMaskRequired) {
+            Value *BlockInMaskPart =
+                MaskValue(Part, StoredValTy->getElementCount(), true);
+            VectorBuilder.setMask(BlockInMaskPart);
+          }
+          NewSI = &VectorBuilder.createContiguousStore(*StoredVal, *VecPtr, Alignment);
         } else if (isMaskRequired) {
           NewSI = Builder.CreateMaskedStore(StoredVal, VecPtr, Alignment,
                                             BlockInMaskParts[Part]);
@@ -3092,16 +3097,28 @@ void InnerLoopVectorizer::vectorizeMemoryInstruction(
       if (EVLPart) {
         VectorType *VecTy =
             cast<VectorType>(VecPtr->getType()->getPointerElementType());
-        Value *BlockInMaskPart =
-            MaskValue(Part, VecTy->getElementCount(), isMaskRequired);
         Value *EVLPartI32 = Builder.CreateSExtOrTrunc(
             EVLPart, Type::getInt32Ty(Builder.getContext()));
+        VectorBuilder VectorBuilder(Builder);
+        VectorBuilder
+          .setStaticVL(VecTy->getElementCount())
+          .setEVL(EVLPartI32);
+
+        if (isMaskRequired) {
+          Value *BlockInMaskPart =
+              MaskValue(Part, VecTy->getElementCount(), true);
+          VectorBuilder.setMask(BlockInMaskPart);
+        }
+        NewLI = &VectorBuilder.createContiguousLoad(*VecPtr, Alignment,
+                                                    "vp.op.load");
+#if 0
         NewLI = Builder.CreateIntrinsic(
             Intrinsic::vp_load,
             {VecPtr->getType()->getPointerElementType(), VecPtr->getType()},
             {VecPtr, Builder.getInt32(Alignment.value()), BlockInMaskPart,
              EVLPartI32},
             nullptr, "vp.op.load");
+#endif
       } else if (isMaskRequired) {
         NewLI = Builder.CreateMaskedLoad(
             VecPtr, Alignment, BlockInMaskParts[Part], PoisonValue::get(DataTy),

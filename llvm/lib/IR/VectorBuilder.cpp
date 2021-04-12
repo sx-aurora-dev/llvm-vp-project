@@ -2,7 +2,7 @@
 #include <llvm/IR/FPEnv.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
-#include <llvm/IR/VPBuilder.h>
+#include <llvm/IR/VectorBuilder.h>
 
 namespace {
 using namespace llvm;
@@ -12,24 +12,24 @@ using ShortValueVec = SmallVector<Value *, 4>;
 
 namespace llvm {
 
-Module &VPBuilder::getModule() const {
+Module &VectorBuilder::getModule() const {
   return *Builder.GetInsertBlock()->getParent()->getParent();
 }
 
-Value *VPBuilder::getAllTrueMask() {
+Value *VectorBuilder::getAllTrueMask() {
   auto *boolTy = Builder.getInt1Ty();
   auto *maskTy = VectorType::get(boolTy, StaticVectorLength);
   return ConstantInt::getAllOnesValue(maskTy);
 }
 
-Value &VPBuilder::RequestPred() {
+Value &VectorBuilder::RequestPred() {
   if (Mask)
     return *Mask;
 
   return *getAllTrueMask();
 }
 
-Value &VPBuilder::RequestEVL() {
+Value &VectorBuilder::RequestEVL() {
   if (ExplicitVectorLength)
     return *ExplicitVectorLength;
 
@@ -38,7 +38,7 @@ Value &VPBuilder::RequestEVL() {
   return *ConstantInt::get(intTy, StaticVectorLength.getFixedValue());
 }
 
-Value *VPBuilder::CreateVectorCopy(Instruction &Inst, ValArray VecOpArray) {
+Value *VectorBuilder::createVectorCopy(Instruction &Inst, ValArray VecOpArray) {
   auto OC = Inst.getOpcode();
   auto VPID = VPIntrinsic::GetForOpcode(OC);
   if (VPID == Intrinsic::not_intrinsic) {
@@ -118,16 +118,27 @@ Value *VPBuilder::CreateVectorCopy(Instruction &Inst, ValArray VecOpArray) {
   return VPCall;
 }
 
-VectorType &VPBuilder::getVectorType(Type &ElementTy) {
+VectorType &VectorBuilder::getVectorType(Type &ElementTy) {
   return *VectorType::get(&ElementTy, StaticVectorLength);
 }
 
-Value &VPBuilder::CreateContiguousStore(Value &Val, Value &ElemPointer,
-                                        MaybeAlign AlignOpt) {
+static Type&
+getScalarType(Type &Ty) {
+  if (auto *VecTy = dyn_cast<VectorType>(&Ty))
+    return *VecTy->getElementType();
+  return Ty;
+}
+
+Instruction &VectorBuilder::createContiguousStore(Value &Val,
+                                                  Value &ElemPointer,
+                                                  MaybeAlign AlignOpt) {
   auto &PointerTy = cast<PointerType>(*ElemPointer.getType());
-  auto &VecTy = getVectorType(*PointerTy.getPointerElementType());
+  auto &VecTy = *Val.getType();
   auto *VecPtrTy = VecTy.getPointerTo(PointerTy.getAddressSpace());
   auto *VecPtr = Builder.CreatePointerCast(&ElemPointer, VecPtrTy);
+  assert((&getScalarType(*PointerTy.getElementType()) ==
+          &getScalarType(*Val.getType())) &&
+         "Element type mismatch");
 
   auto *StoreFunc = Intrinsic::getDeclaration(&getModule(), Intrinsic::vp_store,
                                               {&VecTy, VecPtrTy});
@@ -142,17 +153,18 @@ Value &VPBuilder::CreateContiguousStore(Value &Val, Value &ElemPointer,
   return StoreCall;
 }
 
-Value &VPBuilder::CreateContiguousLoad(Value &ElemPointer,
-                                       MaybeAlign AlignOpt) {
+Instruction &VectorBuilder::createContiguousLoad(Value &ElemPointer,
+                                                 MaybeAlign AlignOpt,
+                                                 Twine Name) {
   auto &PointerTy = cast<PointerType>(*ElemPointer.getType());
-  auto &VecTy = getVectorType(*PointerTy.getPointerElementType());
+  auto &VecTy = getVectorType(getScalarType(*PointerTy.getElementType()));
   auto *VecPtrTy = VecTy.getPointerTo(PointerTy.getAddressSpace());
   auto *VecPtr = Builder.CreatePointerCast(&ElemPointer, VecPtrTy);
 
   auto *LoadFunc = Intrinsic::getDeclaration(&getModule(), Intrinsic::vp_load,
                                              {&VecTy, VecPtrTy});
   ShortValueVec Args{VecPtr, &RequestPred(), &RequestEVL()};
-  CallInst &LoadCall = *Builder.CreateCall(LoadFunc, Args);
+  CallInst &LoadCall = *Builder.CreateCall(LoadFunc, Args, Name);
   if (AlignOpt.hasValue()) {
     unsigned PtrPos =
         VPIntrinsic::GetMemoryPointerParamPos(Intrinsic::vp_load).getValue();
@@ -162,8 +174,8 @@ Value &VPBuilder::CreateContiguousLoad(Value &ElemPointer,
   return LoadCall;
 }
 
-Value &VPBuilder::CreateScatter(Value &Val, Value &PointerVec,
-                                MaybeAlign AlignOpt) {
+Instruction &VectorBuilder::createScatter(Value &Val, Value &PointerVec,
+                                          MaybeAlign AlignOpt) {
   auto *ScatterFunc =
       Intrinsic::getDeclaration(&getModule(), Intrinsic::vp_scatter,
                                 {Val.getType(), PointerVec.getType()});
@@ -181,7 +193,8 @@ Value &VPBuilder::CreateScatter(Value &Val, Value &PointerVec,
   return ScatterCall;
 }
 
-Value &VPBuilder::CreateGather(Value &PointerVec, MaybeAlign AlignOpt) {
+Instruction &VectorBuilder::createGather(Value &PointerVec, MaybeAlign AlignOpt,
+                                         Twine Name) {
   auto &PointerVecTy = cast<VectorType>(*PointerVec.getType());
   auto &ElemTy = *cast<PointerType>(*PointerVecTy.getElementType())
                       .getPointerElementType();
@@ -190,7 +203,7 @@ Value &VPBuilder::CreateGather(Value &PointerVec, MaybeAlign AlignOpt) {
       &getModule(), Intrinsic::vp_gather, {&VecTy, &PointerVecTy});
 
   ShortValueVec Args{&PointerVec, &RequestPred(), &RequestEVL()};
-  CallInst &GatherCall = *Builder.CreateCall(GatherFunc, Args);
+  CallInst &GatherCall = *Builder.CreateCall(GatherFunc, Args, Name);
 #if 0
   // TODO: 'align' unsupported on vector-of-pointers.
   if (AlignOpt.hasValue()) {
@@ -204,7 +217,7 @@ Value &VPBuilder::CreateGather(Value &PointerVec, MaybeAlign AlignOpt) {
   return GatherCall;
 }
 
-Value *VPBuilder::CreateVectorShift(Value *SrcVal, Value *Amount, Twine Name) {
+Value *VectorBuilder::createVectorShift(Value *SrcVal, Value *Amount, Twine Name) {
   auto D = VPIntrinsic::getDeclarationForParams(
       &getModule(), Intrinsic::vp_vshift, {SrcVal, Amount});
   return Builder.CreateCall(D, {SrcVal, Amount, &RequestPred(), &RequestEVL()},

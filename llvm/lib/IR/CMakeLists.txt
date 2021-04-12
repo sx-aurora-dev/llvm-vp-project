@@ -56,9 +56,9 @@ add_llvm_component_library(LLVMCore
   TypeFinder.cpp
   Use.cpp
   User.cpp
-  VPBuilder.cpp
   Value.cpp
   ValueSymbolTable.cpp
+  VectorBuilder.cpp
   Verifier.cpp
 
   ADDITIONAL_HEADER_DIRS

@@ -1,5 +1,5 @@
-#ifndef LLVM_IR_VPBUILDER_H
-#define LLVM_IR_VPBUILDER_H
+#ifndef LLVM_IR_VECTORBUILDER_H
+#define LLVM_IR_VECTORBUILDER_H
 
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Value.h>
@@ -11,7 +11,7 @@ namespace llvm {
 
 using ValArray = ArrayRef<Value*>;
 
-class VPBuilder {
+class VectorBuilder {
   IRBuilder<> & Builder;
 
   // Explicit mask parameter
@@ -26,7 +26,7 @@ class VPBuilder {
   Value& RequestEVL();
 
 public:
-  VPBuilder(IRBuilder<> &_builder)
+  VectorBuilder(IRBuilder<> &_builder)
       : Builder(_builder), Mask(nullptr), ExplicitVectorLength(nullptr),
         StaticVectorLength(ElementCount::getFixed(0)) {}
 
@@ -39,38 +39,42 @@ public:
   Value* getAllTrueMask();
 
   // Predication context tracker
-  VPBuilder &setMask(Value *_Mask) {
+  VectorBuilder &setMask(Value *_Mask) {
     Mask = _Mask;
     return *this;
   }
-  VPBuilder &setEVL(Value *_ExplicitVectorLength) {
+  VectorBuilder &setEVL(Value *_ExplicitVectorLength) {
     ExplicitVectorLength = _ExplicitVectorLength;
     return *this;
   }
-  VPBuilder &setStaticVL(unsigned FixedVL) {
+  VectorBuilder &setStaticVL(unsigned FixedVL) {
     StaticVectorLength = ElementCount::getFixed(FixedVL);
     return *this;
   }
-  VPBuilder &setStaticVL(ElementCount ScalableVL) {
-    assert(false && "TODO implement vscale handling");
+  VectorBuilder &setStaticVL(ElementCount ScalableVL) {
+    assert(!ScalableVL.isScalable() && "TODO implement symbolic vlens (aka scalable)");
     StaticVectorLength = ScalableVL;
     return *this;
   }
 
   // Create a map-vectorized copy of the instruction \p Inst with the underlying IRBuilder instance.
   // This operation may return nullptr if the instruction could not be vectorized.
-  Value* CreateVectorCopy(Instruction & Inst, ValArray VecOpArray);
+  Value* createVectorCopy(Instruction & Inst, ValArray VecOpArray);
 
   // shift the elements in \p SrcVal by Amount where the result lane is true.
-  Value* CreateVectorShift(Value *SrcVal, Value *Amount, Twine Name="");
+  Value* createVectorShift(Value *SrcVal, Value *Amount, Twine Name="");
 
   // Memory
-  Value& CreateContiguousStore(Value & Val, Value & Pointer, MaybeAlign Alignment);
-  Value& CreateContiguousLoad(Value & Pointer, MaybeAlign Alignment);
-  Value& CreateScatter(Value & Val, Value & PointerVec, MaybeAlign Alignment);
-  Value& CreateGather(Value & PointerVec, MaybeAlign Alignment);
+  Instruction &createContiguousStore(Value &Val, Value &Pointer,
+                                     MaybeAlign Alignment);
+  Instruction &createContiguousLoad(Value &Pointer, MaybeAlign Alignment,
+                                    Twine Name = "");
+  Instruction &createScatter(Value &Val, Value &PointerVec,
+                             MaybeAlign Alignment);
+  Instruction &createGather(Value &PointerVec, MaybeAlign Alignment,
+                            Twine Name = "");
 };
 
 } // namespace llvm
 
-#endif // LLVM_IR_VPBUILDER_H
+#endif // LLVM_IR_VECTORBUILDER_H
