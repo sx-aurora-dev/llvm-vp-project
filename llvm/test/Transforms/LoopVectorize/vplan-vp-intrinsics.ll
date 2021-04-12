@@ -1,7 +1,7 @@
 ; REQUIRES: asserts
 
 ; RUN: opt -loop-vectorize -debug-only=loop-vectorize \
-; RUN: -force-vector-width=4 -prefer-predicate-with-vp-intrinsics \
+; RUN: -force-vector-width=4 -prefer-predicate-with-vp-intrinsics=force-active-vector-length-support \
 ; RUN: -prefer-predicate-over-epilogue=predicate-dont-vectorize \
 ; RUN: -mattr=+avx512f -disable-output  %s 2>&1 | FileCheck %s
 
@@ -11,19 +11,19 @@ target triple = "x86_64-unknown-linux-gnu"
 ; Function Attrs: nofree norecurse nounwind uwtable
 define dso_local void @foo(i32* noalias nocapture %a, i32* noalias nocapture readonly %b, i32* noalias nocapture readonly %c, i32 %N) local_unnamed_addr {
 
-; CHECK:  N0 [label =
-; CHECK-NEXT:    "for.body:\n" +
-; CHECK-NEXT:      "WIDEN-INDUCTION %indvars.iv = phi 0, %indvars.iv.next\l" +
-; CHECK-NEXT:      "EMIT vp<%2> = icmp ule ir<%indvars.iv> vp<%0>\l" +
-; CHECK-NEXT:      "CLONE ir<%arrayidx> = getelementptr ir<%b>, ir<%indvars.iv>\l" +
-; CHECK-NEXT:      "EMIT vp<%4> = GENERATE-EXPLICIT-VECTOR-LENGTH\l" +
-; CHECK-NEXT:      "PREDICATED-WIDEN ir<%0> = load ir<%arrayidx>, vp<%2>, vp<%4>\l" +
-; CHECK-NEXT:      "CLONE ir<%arrayidx2> = getelementptr ir<%c>, ir<%indvars.iv>\l" +
-; CHECK-NEXT:      "PREDICATED-WIDEN ir<%1> = load ir<%arrayidx2>, vp<%2>, vp<%4>\l" +
-; CHECK-NEXT:      "PREDICATED-WIDEN ir<%add> = add ir<%1>, ir<%0>, vp<%2>, vp<%4>\l" +
-; CHECK-NEXT:      "CLONE ir<%arrayidx4> = getelementptr ir<%a>, ir<%indvars.iv>\l" +
-; CHECK-NEXT:      "PREDICATED-WIDEN store ir<%arrayidx4>, ir<%add>, vp<%2>, vp<%4>\l"
-; CHECK-NEXT:  ]
+; CHECK:       VPlan 'Initial
+; CHECK-NEXT:  for.body:
+; CHECK-NEXT:    WIDEN-INDUCTION %indvars.iv = phi 0, %indvars.iv.next
+; CHECK-NEXT:    EMIT vp<%2> = icmp ule ir<%indvars.iv> vp<%0>
+; CHECK-NEXT:    CLONE ir<%arrayidx> = getelementptr ir<%b>, ir<%indvars.iv>
+; CHECK-NEXT:    EMIT vp<%4> = GENERATE-EXPLICIT-VECTOR-LENGTH
+; CHECK-NEXT:    PREDICATED-WIDEN ir<%0> = load ir<%arrayidx>, vp<%2>, vp<%4>
+; CHECK-NEXT:    CLONE ir<%arrayidx2> = getelementptr ir<%c>, ir<%indvars.iv>
+; CHECK-NEXT:    PREDICATED-WIDEN ir<%1> = load ir<%arrayidx2>, vp<%2>, vp<%4>
+; CHECK-NEXT:    PREDICATED-WIDEN ir<%add> = add ir<%1>, ir<%0>, vp<%2>, vp<%4>
+; CHECK-NEXT:    CLONE ir<%arrayidx4> = getelementptr ir<%a>, ir<%indvars.iv>
+; CHECK-NEXT:    PREDICATED-WIDEN store ir<%arrayidx4>, ir<%add>, vp<%2>, vp<%4>
+; CHECK-NEXT:  No successors
 
 entry:
   %cmp10 = icmp sgt i32 %N, 0
