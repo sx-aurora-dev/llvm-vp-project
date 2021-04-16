@@ -374,6 +374,21 @@ bool VPIntrinsic::canIgnoreVectorLengthParam() const {
   return false;
 }
 
+Function *VPIntrinsic::getDeclarationForParams(Module *M, Intrinsic::ID VPID,
+                                               ArrayRef<Value *> Params) {
+  assert(VPID != Intrinsic::not_intrinsic && "todo dispatch to default insts");
+
+  // TODO: Greatly simplified for arithmetic VP intrinsics (which is the only
+  // kind we support atm).
+  Value &FirstOp = *Params[0];
+  using ShortTypeVec = SmallVector<Type *, 1>;
+  ShortTypeVec TypeVec(1, FirstOp.getType());
+  auto *VPFunc = Intrinsic::getDeclaration(M, VPID, TypeVec);
+  assert(VPFunc && "Could not declare VP intrinsic");
+
+  return VPFunc;
+}
+
 Instruction::BinaryOps BinaryOpIntrinsic::getBinaryOp() const {
   switch (getIntrinsicID()) {
   case Intrinsic::uadd_with_overflow:
