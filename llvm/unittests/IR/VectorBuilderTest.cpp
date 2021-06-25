@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/VectorBuilder.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
@@ -23,20 +25,56 @@ using namespace llvm;
 
 namespace {
 
+static int VectorNumElements = 8;
+
 class VectorBuilderTest : public testing::Test {
 protected:
   LLVMContext Context;
 
   VectorBuilderTest() : Context() {}
 
-  LLVMContext C;
+  std::unique_ptr<Module> createBuilderModule(Function *&Func, BasicBlock *&BB,
+                                              Value *&Mask, Value *&EVL) {
+    auto *Mod = new Module("TestModule", Context);
+    auto *Int32Ty = Type::getInt32Ty(Context);
+    auto *Mask8Ty = FixedVectorType::get(Type::getInt1Ty(Context), VectorNumElements);
+    auto *VoidFuncTy =
+        FunctionType::get(Type::getVoidTy(Context), {Mask8Ty, Int32Ty}, false);
+    Func =
+        Function::Create(VoidFuncTy, GlobalValue::ExternalLinkage, "bla", Mod);
+    Mask = Func->getArg(0);
+    EVL = Func->getArg(1);
+    BB = BasicBlock::Create(Context, "entry", Func);
+
+    return std::unique_ptr<Module>(Mod);
+  }
 };
 
 /// Check that the property scopes include/llvm/IR/VPIntrinsics.def are closed.
-TEST_F(VectorBuilderTest, TestCreateInstruction) {
-  std::set<unsigned> VPOpcodes;
-#define HANDLE_VP_TO_OPC(VP, OPC) VPOpcodes.insert(OPC);
-#include "llvm/IR/VPIntrinsics.def"
+TEST_F(VectorBuilderTest, TestCreateBinaryInstructions) {
+  Function *F;
+  BasicBlock *BB;
+  Value *Mask, *EVL;
+  auto Mod = createBuilderModule(F, BB, Mask, EVL);
+
+  IRBuilder<> Builder(BB);
+  VectorBuilder VBuild(Builder);
+  VBuild.setMask(Mask).setEVL(EVL);
+
+  auto *FloatVecTy = FixedVectorType::get(Type::getFloatTy(Context), VectorNumElements);
+  auto *IntVecTy = FixedVectorType::get(Type::getInt32Ty(Context), VectorNumElements);
+
+#define HANDLE_BINARY_INST(NUM, OPCODE, INSTCLASS)                             \
+  {                                                                            \
+    auto VPID = VPIntrinsic::getForOpcode(Instruction::OPCODE);                \
+    bool IsFP = (#INSTCLASS)[0] == 'F';                                        \
+    Value *Op = UndefValue::get(IsFP ? FloatVecTy : IntVecTy);                 \
+    auto *VPIntrin =                                                           \
+        VBuild.createVectorInstruction(Instruction::OPCODE, {Op, Op});         \
+    ASSERT_TRUE(isa<VPIntrinsic>(VPIntrin));                                   \
+    ASSERT_EQ(cast<VPIntrinsic>(VPIntrin)->getIntrinsicID(), VPID);            \
+  }
+#include "llvm/IR/Instruction.def"
 }
 
 } // end anonymous namespace

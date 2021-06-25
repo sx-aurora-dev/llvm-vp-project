@@ -26,8 +26,8 @@ class VectorBuilder {
   Value &requestEVL();
 
 public:
-  VectorBuilder(IRBuilder<> &_builder)
-      : Builder(_builder), Mask(nullptr), ExplicitVectorLength(nullptr),
+  VectorBuilder(IRBuilder<> &Builder)
+      : Builder(Builder), Mask(nullptr), ExplicitVectorLength(nullptr),
         StaticVectorLength(ElementCount::getFixed(0)) {}
 
   Module &getModule() const;
